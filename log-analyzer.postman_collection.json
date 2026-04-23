@@ -1,0 +1,106 @@
+{
+  "info": {
+    "name": "Log Analyzer - Phase 1",
+    "_postman_id": "log-analyzer-phase1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" }
+  ],
+  "item": [
+    {
+      "name": "Day 1 — Raw LLM Call",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/logs/analyze",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"logText\": \"2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Day 2 — Prompt (temperature=0.0, deterministic)",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/api/logs/analyze/prompt?temperature=0.0",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "logs", "analyze", "prompt"],
+          "query": [{ "key": "temperature", "value": "0.0" }]
+        },
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"logText\": \"2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Day 2 — Prompt (temperature=0.7, creative)",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/api/logs/analyze/prompt?temperature=0.7",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "logs", "analyze", "prompt"],
+          "query": [{ "key": "temperature", "value": "0.7" }]
+        },
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"logText\": \"2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Day 3 — EXPLAIN",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/logs/analyze/EXPLAIN",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"logText\": \"2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Day 3 — DETECT_ERRORS",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/logs/analyze/DETECT_ERRORS",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"logText\": \"2024-01-15 10:22:58 INFO  app.Main - Starting application\\n2024-01-15 10:23:00 WARN  com.db.Pool - Retrying connection (attempt 1)\\n2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\n2024-01-15 10:23:01 ERROR com.auth.Service - NullPointerException at AuthService.java:42\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Day 3 — SUMMARIZE",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/logs/analyze/SUMMARIZE",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"logText\": \"2024-01-15 10:22:58 INFO  app.Main - Starting application\\n2024-01-15 10:23:00 WARN  com.db.Pool - Retrying connection (attempt 1)\\n2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\n2024-01-15 10:23:01 ERROR com.auth.Service - NullPointerException at AuthService.java:42\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Day 3 — ROOT_CAUSE",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/logs/analyze/ROOT_CAUSE",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"logText\": \"2024-01-15 10:22:58 INFO  app.Main - Starting application\\n2024-01-15 10:23:00 WARN  com.db.Pool - Retrying connection (attempt 1)\\n2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\n2024-01-15 10:23:01 ERROR com.auth.Service - NullPointerException at AuthService.java:42\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\"\n}"
+        }
+      }
+    }
+  ]
+}
