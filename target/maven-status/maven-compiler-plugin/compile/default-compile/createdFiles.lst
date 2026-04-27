@@ -1,9 +1,10 @@
-com/loganalyzer/service/LogAnalysisService$2.class
-com/loganalyzer/model/ErrorDetectionResponse.class
 com/loganalyzer/LogAnalyzerApplication.class
-com/loganalyzer/model/LogError.class
 com/loganalyzer/model/LogAnalysisResponse.class
 com/loganalyzer/model/LogAnalysisRequest.class
+com/loganalyzer/ai/LogAnalysisAI.class
+com/loganalyzer/config/LangChain4jConfig.class
+com/loganalyzer/model/ErrorDetectionResponse.class
+com/loganalyzer/model/LogError.class
 com/loganalyzer/controller/LogAnalysisController.class
 com/loganalyzer/model/AnalysisMode.class
 com/loganalyzer/service/LogAnalysisService$1.class
