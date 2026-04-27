@@ -1,7 +1,6 @@
 package com.loganalyzer.controller;
 
 import com.loganalyzer.model.AnalysisMode;
-import com.loganalyzer.model.ErrorDetectionResponse;
 import com.loganalyzer.model.LogAnalysisRequest;
 import com.loganalyzer.model.LogAnalysisResponse;
 import com.loganalyzer.service.LogAnalysisService;
@@ -13,10 +12,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Phase 1 REST API — supports application/json AND multipart/form-data for all endpoints.
+ * Phase 2 REST API — unchanged endpoints, simplified routing.
  *
- * JSON:      { "logText": "..." }
- * Multipart: logText (text field) OR file (file field)
+ * The service layer now handles structured vs string responses internally,
+ * so the controller just delegates without branching on mode.
  */
 @RestController
 @RequestMapping("/api/logs")
@@ -59,12 +58,12 @@ public class LogAnalysisController {
         return new LogAnalysisResponse(service.analyzeWithPrompt(resolveInput(logText, file), temperature));
     }
 
-    // Day 3 — JSON
+    // Day 3 — JSON (now delegates entirely to service.analyzeWithMode which returns structured types)
     @PostMapping(value = "/analyze/{mode}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public Object analyzeWithMode(
             @RequestBody LogAnalysisRequest request,
             @PathVariable AnalysisMode mode) {
-        return route(mode, request.logText());
+        return service.analyzeWithMode(request.logText(), mode);
     }
 
     // Day 3 — multipart
@@ -73,21 +72,9 @@ public class LogAnalysisController {
             @RequestPart(required = false) String logText,
             @RequestPart(required = false) MultipartFile file,
             @PathVariable AnalysisMode mode) throws IOException {
-        return route(mode, resolveInput(logText, file));
+        return service.analyzeWithMode(resolveInput(logText, file), mode);
     }
 
-    // ── shared routing ────────────────────────────────────────────────────────
-    private Object route(AnalysisMode mode, String input) {
-        if (mode == AnalysisMode.DETECT_ERRORS) {
-            return service.detectErrorsStructured(input);
-        }
-        if (mode == AnalysisMode.ROOT_CAUSE) {
-            return service.rootCauseAnalysisStructured(input);
-        }
-        return new LogAnalysisResponse(service.analyzeWithMode(input, mode));
-    }
-
-    // ── helper ────────────────────────────────────────────────────────────────
     private String resolveInput(String logText, MultipartFile file) throws IOException {
         if (file != null && !file.isEmpty()) {
             return new String(file.getBytes(), StandardCharsets.UTF_8);
