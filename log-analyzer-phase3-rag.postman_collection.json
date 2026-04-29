@@ -1,0 +1,263 @@
+{
+  "info": {
+    "name": "Log Analyzer - Phase 3 (RAG Pipeline)",
+    "_postman_id": "log-analyzer-phase3-rag",
+    "description": "Phase 3 RAG testing collection. Run requests IN ORDER — ingestion first, then queries.\n\nDebugging tips:\n- Set breakpoints in LogIngestionService.chunkLogEntries() to watch chunking\n- Set breakpoints in RagService.query() to inspect the full RAG pipeline\n- Watch the console for embedding model logs and OpenAI request/response logs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" }
+  ],
+  "item": [
+    {
+      "name": "Step 1 — Ingestion",
+      "description": "Ingest logs into the vector store before querying.",
+      "item": [
+        {
+          "name": "1a. Ingest — DB errors with stack trace",
+          "description": "DEBUG HERE: Set breakpoint in LogIngestionService.chunkLogEntries()\n\nWatch how:\n- Lines starting with timestamps become separate log entries\n- The stack trace (java.sql.SQLException...) stays attached to the ERROR line\n- Small entries get grouped into chunks up to 1000 chars\n\nCheck the response: how many chunks were created?",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-15 10:22:58 INFO  app.Main - Starting application v2.3.1\\n2024-01-15 10:22:59 INFO  com.db.Pool - Initializing connection pool (min=5, max=20)\\n2024-01-15 10:23:00 WARN  com.db.Pool - Retrying connection (attempt 1/3)\\n2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\njava.sql.SQLException: Connection refused\\n    at com.db.Pool.getConnection(Pool.java:42)\\n    at com.app.UserService.findAll(UserService.java:28)\\n    at com.app.UserController.list(UserController.java:15)\\n2024-01-15 10:23:01 ERROR com.auth.Service - Authentication failed for user admin\\njava.lang.NullPointerException: token was null\\n    at com.auth.Service.validate(Service.java:55)\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\\n2024-01-15 10:23:02 INFO  app.Main - Initiating graceful shutdown\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1b. Ingest — Separate session: auth & timeout errors",
+          "description": "Ingesting a SECOND batch of logs. These go into the SAME vector store.\n\nThis tests: can RAG search across multiple ingestion batches?",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-16 14:00:01 INFO  app.Main - Application started successfully\\n2024-01-16 14:05:12 WARN  com.cache.Redis - Cache miss for key: user:1001:session\\n2024-01-16 14:05:13 ERROR com.api.Gateway - Request timeout after 30000ms to payment-service\\njava.net.SocketTimeoutException: Read timed out\\n    at com.api.Gateway.forward(Gateway.java:88)\\n2024-01-16 14:05:14 ERROR com.api.Gateway - Circuit breaker OPEN for payment-service\\n2024-01-16 14:10:00 WARN  com.auth.Session - Session expired for user admin (idle 30m)\\n2024-01-16 14:10:01 ERROR com.auth.Session - Failed to refresh token: 401 Unauthorized\\n2024-01-16 14:15:00 INFO  com.db.Pool - Connection pool healthy: 18/20 active\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1c. Ingest — Clean healthy logs (no errors)",
+          "description": "Ingest logs with NO errors. This tests:\n- Does RAG correctly ignore these when asked about errors?\n- Does the min similarity score (0.5) filter them out?",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-17 08:00:00 INFO  app.Main - Application started successfully\\n2024-01-17 08:00:01 INFO  com.db.Pool - Connection pool initialized: 10/20\\n2024-01-17 08:05:00 INFO  com.api.UserController - GET /users returned 200 (45ms)\\n2024-01-17 08:05:01 INFO  com.api.OrderController - POST /orders returned 201 (120ms)\\n2024-01-17 08:10:00 INFO  com.cache.Redis - Cache hit ratio: 94.2%\\n2024-01-17 08:15:00 INFO  com.scheduler.Cleanup - Purged 142 expired sessions\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1d. Ingest — File upload (multipart)",
+          "description": "Test file upload ingestion. In Postman:\n1. Select Body > form-data\n2. Key = 'file', Type = File\n3. Select any .log or .txt file from your machine",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Select a .log or .txt file"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 2 — RAG Queries",
+      "description": "Query the ingested logs. Run AFTER Step 1.\n\nDEBUG HERE: Set breakpoint in RagService.query() and step through:\n1. embeddingModel.embed(question) — watch the question become a vector\n2. embeddingStore.findRelevant() — see which chunks match and their scores\n3. The prompt string — see how retrieved context is injected\n4. chatLanguageModel.generate() — the final LLM call",
+      "item": [
+        {
+          "name": "2a. Query — Specific error type (DB errors)",
+          "description": "WHAT TO OBSERVE:\n- relevantChunks: should contain the DB connection error + stack trace\n- answer: should be grounded in the actual log content, not hallucinated\n- Check console: the OpenAI request log shows the augmented prompt with context",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What database connection errors occurred?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2b. Query — Cross-batch retrieval (timeout errors)",
+          "description": "This question should retrieve chunks from the SECOND ingestion batch (1b).\nTests that the vector store searches across all ingested data.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Were there any request timeouts or circuit breaker events?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2c. Query — Authentication issues",
+          "description": "Tests semantic search: the question says 'login' but the logs say 'authentication' and 'session expired'.\nEmbeddings should match by MEANING, not exact keywords.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Were there any login or session problems?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2d. Query — Broad question (all errors)",
+          "description": "A broad question should retrieve chunks from MULTIPLE ingestion batches.\nCheck: does relevantChunks contain errors from both batch 1a and 1b?",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"List all errors and their root causes\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2e. Query — Unrelated question (tests grounding)",
+          "description": "CRITICAL TEST: Ask about something NOT in the logs.\nThe LLM should say it doesn't have enough information.\nIf it makes up an answer, the RAG grounding prompt isn't working well.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What Kubernetes pod restarts happened?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2f. Query — Stack trace analysis",
+          "description": "Tests that stack traces were preserved during chunking.\nThe answer should reference specific class names and line numbers from the stack trace.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Which Java classes and methods threw exceptions? Include line numbers.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2g. Query — System health summary",
+          "description": "A high-level question. Should pull from healthy logs (batch 1c) AND error logs.\nTests whether RAG can synthesize across different types of log entries.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What is the overall health of the system? Are there any concerns?\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 3 — Edge Cases",
+      "description": "Test boundary conditions and error scenarios.",
+      "item": [
+        {
+          "name": "3a. Query before ingestion (restart server first)",
+          "description": "Restart the server to clear the in-memory store, then run this.\nTests: what happens when the vector store is empty?\nThe LLM should indicate no relevant logs were found.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What errors occurred?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3b. Ingest — Single line log",
+          "description": "Minimal input: just one log line. Should produce exactly 1 chunk.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-15 10:00:00 ERROR app.Main - OutOfMemoryError: Java heap space\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3c. Ingest — Large log (many entries)",
+          "description": "Tests chunking with many entries. Check: chunksIngested should be > 1.\nThe chunker should split this into multiple chunks of ~1000 chars each.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-15 10:00:00 INFO  app.Main - Starting application\\n2024-01-15 10:00:01 INFO  com.db.Pool - Initializing pool\\n2024-01-15 10:00:02 INFO  com.cache.Redis - Connecting to redis:6379\\n2024-01-15 10:00:03 INFO  com.mq.Rabbit - Connecting to rabbitmq:5672\\n2024-01-15 10:00:04 WARN  com.db.Pool - Slow query detected (2340ms): SELECT * FROM orders\\n2024-01-15 10:00:05 INFO  com.api.Gateway - Route registered: /api/users\\n2024-01-15 10:00:06 INFO  com.api.Gateway - Route registered: /api/orders\\n2024-01-15 10:00:07 INFO  com.api.Gateway - Route registered: /api/payments\\n2024-01-15 10:00:08 ERROR com.mq.Rabbit - Failed to connect: Connection refused\\njava.net.ConnectException: Connection refused\\n    at com.mq.Rabbit.connect(Rabbit.java:34)\\n2024-01-15 10:00:09 WARN  com.mq.Rabbit - Retrying connection (attempt 1/5)\\n2024-01-15 10:00:10 INFO  com.mq.Rabbit - Connected to rabbitmq:5672\\n2024-01-15 10:00:11 ERROR com.scheduler.Job - Cron job 'daily-report' failed\\njava.lang.IllegalStateException: Report template not found\\n    at com.scheduler.ReportJob.execute(ReportJob.java:67)\\n    at com.scheduler.Engine.run(Engine.java:23)\\n2024-01-15 10:00:12 INFO  app.Main - Application ready in 12.4s\\n2024-01-15 10:00:13 INFO  com.metrics.Health - Health check: UP\\n2024-01-15 10:00:14 INFO  com.metrics.Health - CPU: 23%, Memory: 512MB/2048MB\\n2024-01-15 10:00:15 WARN  com.api.RateLimit - Rate limit approaching for IP 192.168.1.100 (95/100)\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3d. Ingest — Duplicate data",
+          "description": "Ingest the SAME log as 3b again. The vector store will have duplicates.\nThen query for it — does the answer change? Are duplicates in relevantChunks?",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-15 10:00:00 ERROR app.Main - OutOfMemoryError: Java heap space\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 4 — Compare RAG vs Direct Analysis",
+      "description": "Run the SAME log through both Phase 2 (direct LLM) and Phase 3 (RAG) to compare.",
+      "item": [
+        {
+          "name": "4a. Phase 2 — Direct EXPLAIN (no RAG)",
+          "description": "Direct LLM analysis — the model uses ONLY the log text you send right now.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/analyze/EXPLAIN",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-16 14:05:13 ERROR com.api.Gateway - Request timeout after 30000ms to payment-service\"\n}"
+            }
+          }
+        },
+        {
+          "name": "4b. Phase 3 — RAG query about the same error",
+          "description": "RAG query — the model gets RETRIEVED CONTEXT from all ingested logs.\nCompare this answer with 4a. RAG should provide richer context\n(e.g., mentioning the circuit breaker that followed the timeout).",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What happened with the payment service timeout?\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

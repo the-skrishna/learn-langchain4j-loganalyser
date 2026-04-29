@@ -41,6 +41,13 @@
             <version>${langchain4j.version}</version>
         </dependency>
 
+        <!-- Phase 3: In-process embedding model (no API key needed) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-embeddings-all-minilm-l6-v2</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
