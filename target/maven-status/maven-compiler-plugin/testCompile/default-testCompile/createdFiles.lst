@@ -1,2 +1,5 @@
 com/loganalyzer/controller/LogAnalysisControllerTest.class
+com/loganalyzer/controller/RagControllerTest.class
+com/loganalyzer/service/LogIngestionServiceTest.class
 com/loganalyzer/service/LogAnalysisServiceTest.class
+com/loganalyzer/service/RagServiceTest.class

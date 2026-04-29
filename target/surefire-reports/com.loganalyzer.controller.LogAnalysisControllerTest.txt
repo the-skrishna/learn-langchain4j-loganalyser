@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.loganalyzer.controller.LogAnalysisControllerTest
 -------------------------------------------------------------------------------
-Tests run: 13, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.505 s -- in com.loganalyzer.controller.LogAnalysisControllerTest
+Tests run: 13, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.718 s -- in com.loganalyzer.controller.LogAnalysisControllerTest

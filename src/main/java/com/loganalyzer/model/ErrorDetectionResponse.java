@@ -5,4 +5,5 @@ import java.util.List;
 public record ErrorDetectionResponse(
         int totalErrors,
         List<LogError> errors
-) {}
+) {
+}

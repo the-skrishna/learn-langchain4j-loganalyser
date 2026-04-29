@@ -1,0 +1,403 @@
+What Phase 3 Added to the Project
+  
+  New Files (6 source + 3 test)
+  
+  ┌──────────────────────────────────┬───────────────────────────────────────────────────┬─────────────────────┐
+  │ File                             │ Role                                              │ Maps to Roadmap Day │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────┼─────────────────────┤
+  │ config/EmbeddingConfig.java      │ Beans for EmbeddingModel + EmbeddingStore         │ Day 7-9             │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────┼─────────────────────┤
+  │ service/LogIngestionService.java │ Smart chunking + embedding + storage              │ Day 11              │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────┼─────────────────────┤
+  │ service/RagService.java          │ Full RAG pipeline (Retrieve → Augment → Generate) │ Day 10              │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────┼─────────────────────┤
+  │ controller/RagController.java    │ REST endpoints for ingest + query                 │ Day 10-11           │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────┼─────────────────────┤
+  │ model/RagQueryRequest.java       │ DTO for query input                               │ Day 10              │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────┼─────────────────────┤
+  │ model/RagQueryResponse.java      │ DTO for query output                              │ Day 10              │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────┼─────────────────────┤
+  │ model/IngestionResponse.java     │ DTO for ingestion result                          │ Day 11              │
+  └──────────────────────────────────┴───────────────────────────────────────────────────┴─────────────────────┘
+  
+  New Dependency in pom.xml
+  
+  <dependency>
+      <groupId>dev.langchain4j</groupId>
+      <artifactId>langchain4j-embeddings-all-minilm-l6-v2</artifactId>
+      <version>0.31.0</version>
+  </dependency>
+  
+  This is an in-process embedding model — it runs locally via ONNX Runtime, no API key needed.
+  
+  What Was NOT Changed
+  
+  All Phase 1 and Phase 2 code is untouched. The RAG system is a completely additive layer — new controller, new services, new config. This is good
+  architecture: new features don't break existing ones.
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  Architecture After Phase 3
+  
+                      ┌─────────────────────────────────────────────┐
+                      │              REST Layer                      │
+                      │  LogAnalysisController    RagController      │
+                      │  (Phase 1-2, unchanged)   (Phase 3, NEW)    │
+                      └──────────┬──────────────────┬───────────────┘
+                                 │                  │
+                      ┌──────────▼──────┐  ┌────────▼────────────┐
+                      │ LogAnalysisService│  │ LogIngestionService │
+                      │ (Phase 2)        │  │ (Phase 3: chunk +   │
+                      └──────────┬───────┘  │  embed + store)     │
+                                 │          └────────┬────────────┘
+                      ┌──────────▼──────┐            │
+                      │  LogAnalysisAI  │  ┌─────────▼──────────┐
+                      │  (AI Service)   │  │    RagService       │
+                      └──────────┬──────┘  │ (retrieve + augment │
+                                 │         │  + generate)        │
+                      ┌──────────▼──────┐  └──┬──────────┬───────┘
+                      │ ChatLanguageModel│     │          │
+                      │ (OpenAI GPT-4o) │◄────┘          │
+                      └─────────────────┘     ┌──────────▼──────────┐
+                                              │  EmbeddingModel     │
+                                              │  (AllMiniLmL6V2)    │
+                                              └──────────┬──────────┘
+                                              ┌──────────▼──────────┐
+                                              │  EmbeddingStore     │
+                                              │  (InMemory)         │
+                                              └─────────────────────┘
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  The 7 Concepts You Should Learn In Depth
+  
+  1. Embeddings — What They Are and Why They Matter
+  
+  Where in code: EmbeddingConfig.embeddingModel() and every call to embeddingModel.embed(text)
+  
+  An embedding is a vector (array of floats) that represents the meaning of text. The key insight: texts with similar meanings produce vectors that are
+  close together in vector space.
+  
+  // From LogIngestionService.ingest():
+  Embedding embedding = embeddingModel.embed(segment.text()).content();
+  // This converts "ERROR db Connection timeout" → float[384]
+  // (AllMiniLmL6V2 produces 384-dimensional vectors)
+  
+  Why this matters for log analysis: the question "What database errors occurred?" and the log line "ERROR db Connection timeout" have similar embeddings
+   even though they share almost no exact words. This is semantic search — matching by meaning, not keywords.
+  
+  Learn more:
+  
+  - https://docs.langchain4j.dev/tutorials/rag#embedding (https://docs.langchain4j.dev/tutorials/rag#embedding) — LangChain4j embedding concepts
+  - https://platform.openai.com/docs/guides/embeddings (https://platform.openai.com/docs/guides/embeddings) — OpenAI's explanation of embeddings
+  (conceptual, applies to any model)
+  - https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 (https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — The actual model used
+  in your project
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  2. The AllMiniLmL6V2 In-Process Embedding Model
+  
+  Where in code: EmbeddingConfig.java
+  
+  @Bean
+  public EmbeddingModel embeddingModel() {
+      return new AllMiniLmL6V2EmbeddingModel();
+  }
+  
+  This is a sentence-transformer model that runs entirely inside your JVM via ONNX Runtime. Key properties:
+  
+  - 384 dimensions — each text becomes a float[384]
+  - No API key needed — unlike OpenAI's text-embedding-ada-002
+  - Fast — runs locally, no network latency
+  - Trade-off — less powerful than OpenAI's embedding models, but perfect for learning and many production use cases
+  
+  The Maven dependency langchain4j-embeddings-all-minilm-l6-v2 bundles the ONNX model file inside the JAR. When you call new AllMiniLmL6V2EmbeddingModel(),
+  it loads the model into memory once.
+  
+  Learn more:
+  
+  - https://docs.langchain4j.dev/integrations/embedding-models/in-process (https://docs.langchain4j.dev/integrations/embedding-models/in-process) —
+  LangChain4j in-process embedding models
+  - https://onnxruntime.ai/ (https://onnxruntime.ai/) — ONNX Runtime (the engine that runs the model in Java)
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  3. Vector Store (EmbeddingStore) and Similarity Search
+  
+  Where in code: EmbeddingConfig.embeddingStore() and RagService.retrieve()
+  
+  @Bean
+  public EmbeddingStore<TextSegment> embeddingStore() {
+      return new InMemoryEmbeddingStore<>();
+  }
+  
+  The EmbeddingStore is a vector database — it stores embeddings alongside their original text (TextSegment) and supports similarity search. The
+  InMemoryEmbeddingStore keeps everything in a List in memory.
+  
+  The critical operation is findRelevant:
+  
+  // From RagService.retrieve():
+  Embedding questionEmbedding = embeddingModel.embed(question).content();
+  return embeddingStore.findRelevant(questionEmbedding, MAX_RESULTS, MIN_SCORE);
+  //                                  ↑ query vector    ↑ top-K     ↑ minimum cosine similarity
+  
+  What happens under the hood:
+  
+  1. The question is embedded into a vector
+  2. findRelevant computes cosine similarity between the question vector and every stored vector
+  3. Returns the top 5 (MAX_RESULTS) matches with similarity ≥ 0.5 (MIN_SCORE)
+  4. Each EmbeddingMatch contains the score, the embedding, and the original TextSegment
+  
+  Cosine similarity ranges from -1 to 1 (for normalized vectors, 0 to 1). A score of 0.9 means "very similar meaning"; 0.5 is the threshold your code uses
+  to filter out irrelevant results.
+  
+  Learn more:
+  
+  - https://docs.langchain4j.dev/tutorials/rag#embedding-store (https://docs.langchain4j.dev/tutorials/rag#embedding-store) — LangChain4j EmbeddingStore
+  concepts
+  - https://docs.langchain4j.dev/integrations/embedding-stores/in-memory (https://docs.langchain4j.dev/integrations/embedding-stores/in-memory) —
+  InMemoryEmbeddingStore docs
+  - https://docs.langchain4j.dev/integrations/embedding-stores/ (https://docs.langchain4j.dev/integrations/embedding-stores/) — All supported vector stores
+  (Chroma, Pinecone, Weaviate, etc.)
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  4. TextSegment — The Unit of Storage
+  
+  Where in code: LogIngestionService.ingest()
+  
+  TextSegment segment = TextSegment.from(chunk);
+  Embedding embedding = embeddingModel.embed(segment.text()).content();
+  embeddingStore.add(embedding, segment);
+  
+  TextSegment is LangChain4j's wrapper for a piece of text that you want to store and retrieve. It can also carry metadata (key-value pairs) — your code
+  doesn't use metadata yet, but in production you'd add things like:
+  
+  TextSegment segment = TextSegment.from(chunk, Metadata.from("source", "app.log")
+                                                         .add("timestamp", "2026-04-25"));
+  
+  This lets you filter search results by metadata later (e.g., "only search logs from yesterday").
+  
+  Learn more:
+  
+  - https://docs.langchain4j.dev/tutorials/rag#document-and-textsegment (https://docs.langchain4j.dev/tutorials/rag#document-and-textsegment) — TextSegment
+  and Document concepts
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  5. Smart Chunking Strategy for Logs
+  
+  Where in code: LogIngestionService.chunkLogEntries() and splitIntoLogEntries()
+  
+  This is one of the most important concepts in RAG. Chunking determines what the AI can find. Bad chunking = bad retrieval = bad answers.
+  
+  Your code implements a two-phase chunking strategy:
+  
+  Phase A — Split into logical log entries:
+  
+  private List<String> splitIntoLogEntries(String logContent) {
+      // A new entry starts when a line begins with a timestamp
+      // Lines WITHOUT a timestamp (stack traces) stay with the previous entry
+  }
+  
+  This is critical: if you naively split by newline, a stack trace gets separated from its ERROR line, and the AI loses context.
+  
+  Example — this stays as ONE entry:
+  
+  2026-04-25 10:00:01 ERROR db Connection failed
+  java.sql.SQLException: Connection refused
+      at com.db.Pool.getConnection(Pool.java:42)
+      at com.app.Service.query(Service.java:15)
+  
+  Phase B — Group entries into chunks up to 1000 chars:
+  
+  List<String> chunkLogEntries(String logContent) {
+      // Group small entries together until MAX_CHUNK_CHARS is reached
+      // Start a new chunk when adding the next entry would exceed the limit
+  }
+  
+  Why group? Because embedding a single short log line like "INFO app Started" wastes a vector. Grouping related entries into a chunk gives the embedding
+  model more context to work with.
+  
+  The trade-off: Smaller chunks = more precise retrieval but less context per chunk. Larger chunks = more context but may include irrelevant lines. The
+  1000-char limit is a reasonable middle ground.
+  
+  Learn more:
+  
+  - https://docs.langchain4j.dev/tutorials/rag#document-splitter (https://docs.langchain4j.dev/tutorials/rag#document-splitter) — LangChain4j's built-in
+  splitters
+  - https://www.pinecone.io/learn/chunking-strategies/ (https://www.pinecone.io/learn/chunking-strategies/) — Excellent guide on chunking strategies
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  6. The RAG Pipeline — Retrieve → Augment → Generate
+  
+  Where in code: RagService.query()
+  
+  This is the core concept of Phase 3. RAG solves a fundamental LLM limitation: the model doesn't know about your data. RAG bridges that gap by injecting
+  relevant data into the prompt.
+  
+  public RagResult query(String question) {
+      // Step 1: RETRIEVE — find relevant log chunks
+      List<EmbeddingMatch<TextSegment>> matches = retrieve(question);
+      List<String> relevantChunks = matches.stream()
+              .map(m -> m.embedded().text())
+              .toList();
+  
+      // Step 2: AUGMENT — build a prompt with the retrieved context
+      String context = relevantChunks.stream()
+              .collect(Collectors.joining("\n---\n"));
+      String prompt = """
+              You are a log analysis expert. Answer the question based ONLY on the provided log context.
+              If the logs don't contain enough information, say so.
+              
+              Log context:
+              %s
+              
+              Question: %s
+              """.formatted(context, question);
+  
+      // Step 3: GENERATE — send augmented prompt to LLM
+      String answer = chatLanguageModel.generate(prompt);
+      return new RagResult(answer, relevantChunks);
+  }
+  
+  The flow visualized:
+  
+  User: "What database errors occurred?"
+           │
+           ▼
+      ┌─────────────┐
+      │  1. EMBED    │  "What database errors occurred?" → float[384]
+      └──────┬──────┘
+             ▼
+      ┌─────────────┐
+      │  2. RETRIEVE │  Find top-5 chunks with cosine similarity ≥ 0.5
+      └──────┬──────┘
+             ▼
+      ┌─────────────┐   "You are a log analysis expert...
+      │  3. AUGMENT  │    Log context:
+      │              │    2026-04-25 ERROR db Connection timeout
+      │              │    ---
+      │              │    2026-04-25 ERROR db Pool exhausted
+      │              │    Question: What database errors occurred?"
+      └──────┬──────┘
+             ▼
+      ┌─────────────┐
+      │  4. GENERATE │  GPT-4o answers based on the injected context
+      └──────┬──────┘
+             ▼
+      "Two database errors were found: a connection timeout and pool exhaustion..."
+  
+  Key design decisions in your code:
+  
+  - "Answer based ONLY on the provided log context" — this grounds the LLM, preventing hallucination
+  - "If the logs don't contain enough information, say so" — graceful handling of insufficient data
+  - \n---\n separator — helps the LLM distinguish between different chunks
+  
+  Learn more:
+  
+  - https://docs.langchain4j.dev/tutorials/rag (https://docs.langchain4j.dev/tutorials/rag) — LangChain4j's comprehensive RAG tutorial (this is the most
+  important link)
+  - https://research.ibm.com/blog/retrieval-augmented-generation-RAG (https://research.ibm.com/blog/retrieval-augmented-generation-RAG) — IBM's explanation
+  of RAG
+  - https://platform.openai.com/docs/guides/prompt-engineering (https://platform.openai.com/docs/guides/prompt-engineering) — Prompt engineering for the
+  augmentation step
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  7. The Two-Step Workflow: Ingest Then Query
+  
+  Where in code: RagController.java
+  
+  Phase 3 introduces a two-phase user workflow that didn't exist before:
+  
+  Step 1 — Ingest (store logs for later querying):
+  
+  # Ingest via JSON
+  curl -X POST http://localhost:8080/api/logs/rag/ingest \
+    -H "Content-Type: application/json" \
+    -d '{"logText":"2026-04-25 10:00:01 ERROR db Connection timeout\n2026-04-25 10:00:02 INFO app Retrying..."}'
+  
+  # Response: {"chunksIngested": 1, "message": "Ingested 1 chunks"}
+  
+  # Or ingest a file
+  curl -X POST http://localhost:8080/api/logs/rag/ingest \
+    -F "file=@/path/to/app.log"
+  
+  # Response: {"chunksIngested": 12, "message": "Ingested 12 chunks from app.log"}
+  
+  Step 2 — Query (ask questions about ingested logs):
+  
+  curl -X POST http://localhost:8080/api/logs/rag/query \
+    -H "Content-Type: application/json" \
+    -d '{"question":"What database errors occurred?"}'
+  
+  # Response:
+  # {
+  #   "answer": "A database connection timeout occurred at 10:00:01...",
+  #   "relevantChunks": ["2026-04-25 10:00:01 ERROR db Connection timeout"]
+  # }
+  
+  This is fundamentally different from Phase 1-2 where you sent log text directly with each request. Now you can:
+  
+  - Ingest a massive log file once
+  - Ask multiple questions about it without resending the data
+  - The AI only sees the relevant parts, not the entire file
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  How Phase 3 Contrasts with Phase 1-2
+  
+  ┌────────────────┬────────────────────────────────────────────────┬────────────────────────────────────────────────┐
+  │ Aspect         │ Phase 1-2                                      │ Phase 3 (RAG)                                  │
+  ├────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ Input          │ Send full log text with every request          │ Ingest once, query many times                  │
+  ├────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ Context limit  │ Limited by LLM's context window (~128K tokens) │ Unlimited — only relevant chunks are sent      │
+  ├────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ Search type    │ LLM reads everything linearly                  │ Semantic search finds relevant parts           │
+  ├────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ Cost           │ Entire log sent to OpenAI every time           │ Only small chunks sent per query               │
+  ├────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┤
+  │ New components │ None                                           │ EmbeddingModel, EmbeddingStore, chunking logic │
+  └────────────────┴────────────────────────────────────────────────┴────────────────────────────────────────────────┘
+  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  
+  Recommended Learning Order
+  
+  1. Start with embeddings conceptually — understand what a vector representation of text means
+  2. Understand cosine similarity — how "closeness" in vector space maps to semantic similarity
+  3. Study the chunking strategy — this is where domain knowledge (log formats) meets RAG engineering
+  4. Trace the full RAG pipeline — follow a query from RagController through RagService to the LLM
+  5. Read the tests — RagServiceTest especially shows how to verify RAG behavior with mocks (the ArgumentCaptor test is a great pattern)
+  
+  Key Documentation Links (Consolidated)
+  
+  ┌───────────────────────────────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │ Topic                                 │ Link                                                                                                        │
+  ├───────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ LangChain4j RAG Tutorial (start here) │ https://docs.langchain4j.dev/tutorials/rag (https://docs.langchain4j.dev/tutorials/rag)                     │
+  ├───────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ LangChain4j Embedding Models          │ https://docs.langchain4j.dev/integrations/embedding-models/in-process                                       │
+  │                                       │ (https://docs.langchain4j.dev/integrations/embedding-models/in-process)                                     │
+  ├───────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ LangChain4j Embedding Stores          │ https://docs.langchain4j.dev/integrations/embedding-stores/                                                 │
+  │                                       │ (https://docs.langchain4j.dev/integrations/embedding-stores/)                                               │
+  ├───────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ InMemoryEmbeddingStore                │ https://docs.langchain4j.dev/integrations/embedding-stores/in-memory                                        │
+  │                                       │ (https://docs.langchain4j.dev/integrations/embedding-stores/in-memory)                                      │
+  ├───────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ AllMiniLmL6V2 (HuggingFace)           │ https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2                                               │
+  │                                       │ (https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)                                             │
+  ├───────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ OpenAI Embeddings Guide               │ https://platform.openai.com/docs/guides/embeddings (https://platform.openai.com/docs/guides/embeddings)     │
+  ├───────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Chunking Strategies (Pinecone)        │ https://www.pinecone.io/learn/chunking-strategies/ (https://www.pinecone.io/learn/chunking-strategies/)     │
+  ├───────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ RAG Concept (IBM Research)            │ https://research.ibm.com/blog/retrieval-augmented-generation-RAG                                            │
+  │                                       │ (https://research.ibm.com/blog/retrieval-augmented-generation-RAG)                                          │
+  └───────────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  
