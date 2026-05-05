@@ -1,6 +1,9 @@
 package com.loganalyzer.config;
 
 import com.loganalyzer.ai.LogAnalysisAI;
+import com.loganalyzer.ai.LogAnalysisAgent;
+import com.loganalyzer.tools.LogTools;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
@@ -17,6 +20,11 @@ import org.springframework.context.annotation.Configuration;
  * - AiServices.create(): Generates a proxy implementation of your AI interface.
  *   It reads @SystemMessage/@UserMessage annotations, constructs prompts,
  *   calls the LLM, and parses the response into your return type.
+ *
+ * Phase 4 addition:
+ * - LogAnalysisAgent is wired with LogTools and MessageWindowChatMemory,
+ *   enabling the LLM to autonomously call tools and maintain context across
+ *   reasoning steps within a single query.
  */
 @Configuration
 public class LangChain4jConfig {
@@ -42,5 +50,24 @@ public class LangChain4jConfig {
     @Bean
     public LogAnalysisAI logAnalysisAI(ChatLanguageModel chatLanguageModel) {
         return AiServices.create(LogAnalysisAI.class, chatLanguageModel);
+    }
+
+    /**
+     * Phase 4 — Day 15: Agent with tools and chat memory.
+     *
+     * AiServices.builder() wires:
+     * - chatLanguageModel: the LLM that reasons and decides which tools to call
+     * - tools(logTools): @Tool-annotated methods the LLM can invoke
+     * - chatMemory: keeps tool call/result history so the agent can reason
+     *   across multiple steps within a single query
+     */
+    @Bean
+    public LogAnalysisAgent logAnalysisAgent(ChatLanguageModel chatLanguageModel,
+                                             LogTools logTools) {
+        return AiServices.builder(LogAnalysisAgent.class)
+                .chatLanguageModel(chatLanguageModel)
+                .tools(logTools)
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+                .build();
     }
 }

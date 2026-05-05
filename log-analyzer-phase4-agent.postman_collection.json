@@ -1,0 +1,249 @@
+{
+  "info": {
+    "name": "Log Analyzer - Phase 4 (Tools & Agents)",
+    "_postman_id": "log-analyzer-phase4-agent",
+    "description": "Phase 4 Agent testing collection.\n\nPREREQUISITE: Run Phase 3 collection Step 1 (ingestion) first — the agent's tools query the same vector store.\n\nDebugging tips:\n- Set breakpoint in LogTools.searchLogs() to see when the LLM decides to call it\n- Set breakpoint in LogTools.filterByLevel() to watch level filtering\n- Set breakpoint in LogTools.analyzeErrorPatterns() to see pattern grouping\n- Watch console logs: OpenAI request/response logs show the full tool-calling conversation (the LLM's reasoning, tool call requests, tool results, and final answer)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" }
+  ],
+  "item": [
+    {
+      "name": "Step 0 — Ingest test data",
+      "description": "Ingest logs so the agent's tools have data to work with. Skip if you already ran Phase 3 ingestion.",
+      "item": [
+        {
+          "name": "0a. Ingest — DB + auth errors",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-15 10:22:58 INFO  app.Main - Starting application v2.3.1\\n2024-01-15 10:22:59 INFO  com.db.Pool - Initializing connection pool (min=5, max=20)\\n2024-01-15 10:23:00 WARN  com.db.Pool - Retrying connection (attempt 1/3)\\n2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\njava.sql.SQLException: Connection refused\\n    at com.db.Pool.getConnection(Pool.java:42)\\n    at com.app.UserService.findAll(UserService.java:28)\\n2024-01-15 10:23:01 ERROR com.auth.Service - Authentication failed for user admin\\njava.lang.NullPointerException: token was null\\n    at com.auth.Service.validate(Service.java:55)\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\\n2024-01-15 10:23:02 INFO  app.Main - Initiating graceful shutdown\"\n}"
+            }
+          }
+        },
+        {
+          "name": "0b. Ingest — Timeout + circuit breaker errors",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-16 14:00:01 INFO  app.Main - Application started successfully\\n2024-01-16 14:05:12 WARN  com.cache.Redis - Cache miss for key: user:1001:session\\n2024-01-16 14:05:13 ERROR com.api.Gateway - Request timeout after 30000ms to payment-service\\njava.net.SocketTimeoutException: Read timed out\\n    at com.api.Gateway.forward(Gateway.java:88)\\n2024-01-16 14:05:14 ERROR com.api.Gateway - Circuit breaker OPEN for payment-service\\n2024-01-16 14:10:00 WARN  com.auth.Session - Session expired for user admin (idle 30m)\\n2024-01-16 14:10:01 ERROR com.auth.Session - Failed to refresh token: 401 Unauthorized\\n2024-01-16 14:15:00 INFO  com.db.Pool - Connection pool healthy: 18/20 active\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 1 — Single-tool queries",
+      "description": "Each query should trigger ONE tool call. Watch the console to confirm which tool the LLM chose.\n\nDEBUG: Set breakpoints in all 3 LogTools methods. Only ONE should be hit per request.",
+      "item": [
+        {
+          "name": "1a. Agent — Search for database errors",
+          "description": "EXPECTED TOOL CALL: searchLogs(\"database error\", ...)\n\nDEBUG: Set breakpoint in LogTools.searchLogs()\n- Inspect 'keyword' parameter — what did the LLM pass?\n- Inspect 'limit' — did the LLM choose a reasonable number?\n- Step into embeddingStore.findRelevant() to see similarity scores\n- Check the returned list — these are what the LLM will reason about",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What database errors occurred?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1b. Agent — Filter by ERROR level",
+          "description": "EXPECTED TOOL CALL: filterByLevel(\"ERROR\")\n\nDEBUG: Set breakpoint in LogTools.filterByLevel()\n- Watch the semantic search retrieve candidate chunks\n- Then watch the regex filter keep only lines with 'ERROR'\n- Compare: how many chunks came from the vector store vs how many passed the filter?",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Show me all ERROR level log entries\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1c. Agent — Analyze error patterns",
+          "description": "EXPECTED TOOL CALL: analyzeErrorPatterns()\n\nDEBUG: Set breakpoint in LogTools.analyzeErrorPatterns()\n- Watch the regex extract error messages from each chunk\n- Inspect the resulting Map<String, Integer> — are errors grouped correctly?\n- The LLM will then summarize this map in natural language",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What are the most common error patterns? Group them by type and count.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1d. Agent — Search for timeout issues",
+          "description": "EXPECTED TOOL CALL: searchLogs(\"timeout\", ...)\n\nShould find the payment-service timeout from batch 0b.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Were there any timeout issues?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1e. Agent — Filter WARN level",
+          "description": "EXPECTED TOOL CALL: filterByLevel(\"WARN\")\n\nShould return warnings about retries, cache misses, and session expiry.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Show me all warnings\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 2 — Multi-tool queries (Agent reasoning)",
+      "description": "These complex queries should trigger MULTIPLE tool calls. The agent will:\n1. Call one tool, observe results\n2. Decide it needs more info, call another tool\n3. Synthesize all results into a final answer\n\nDEBUG: Set breakpoints in ALL LogTools methods. Watch the order they're hit.\nAlso watch the console — the OpenAI logs show the full reasoning chain.",
+      "item": [
+        {
+          "name": "2a. Agent — Find errors and suggest fixes",
+          "description": "EXPECTED: Agent calls searchLogs or analyzeErrorPatterns first, then reasons about fixes.\n\nDEBUG: Watch the console for the multi-step conversation:\n- LLM sends a tool_call request\n- Tool executes and returns results\n- LLM reasons about results and may call another tool\n- LLM generates final answer",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Find all database errors from the logs, group them by error type, and suggest fixes for the most common errors\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2b. Agent — Compare error types",
+          "description": "EXPECTED: Agent may call filterByLevel(\"ERROR\") and analyzeErrorPatterns() to compare.\n\nThis tests multi-step reasoning — the agent needs data from multiple tools to answer.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Are there more database errors or authentication errors? Which category is more critical?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2c. Agent — Full incident report",
+          "description": "EXPECTED: Agent calls multiple tools to build a comprehensive report.\n\nThis is the most complex query — watch how the agent orchestrates tools.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Generate an incident report: list all errors, their frequency, affected services, and recommended actions\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 3 — Edge cases",
+      "description": "Test how the agent handles unusual inputs.",
+      "item": [
+        {
+          "name": "3a. Agent — Unrelated question",
+          "description": "The agent should call a tool, find nothing relevant, and say so.\nTests: does the agent hallucinate or stay grounded?",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What Kubernetes pod restarts happened?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3b. Agent — Vague question",
+          "description": "A vague question — watch which tool the agent chooses and what arguments it passes.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Is everything okay?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3c. Agent — Empty vector store (restart server first)",
+          "description": "Restart the server to clear the in-memory store, then run this.\nThe agent's tools will return empty results. Watch how it handles that.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What errors occurred?\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 4 — Compare Agent vs RAG vs Direct",
+      "description": "Same question through 3 different approaches. Compare the answers.",
+      "item": [
+        {
+          "name": "4a. Phase 2 — Direct analysis (no context)",
+          "description": "Direct LLM call with just the log snippet. No retrieval, no tools.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/analyze/EXPLAIN",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\"\n}"
+            }
+          }
+        },
+        {
+          "name": "4b. Phase 3 — RAG query (retrieval + generation)",
+          "description": "RAG retrieves relevant chunks and injects them into the prompt.\nCompare: richer context than 4a, but you control the question.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What happened with the database connection failure?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "4c. Phase 4 — Agent (autonomous tool use)",
+          "description": "The agent DECIDES what to do. It may search, filter, analyze — all autonomously.\nCompare: most flexible, but you don't control which tools it picks.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What happened with the database connection failure? What other errors are related?\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
