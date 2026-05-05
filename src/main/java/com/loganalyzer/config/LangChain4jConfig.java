@@ -67,7 +67,7 @@ public class LangChain4jConfig {
         return AiServices.builder(LogAnalysisAgent.class)
                 .chatLanguageModel(chatLanguageModel)
                 .tools(logTools)
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(50))
                 .build();
     }
 }
