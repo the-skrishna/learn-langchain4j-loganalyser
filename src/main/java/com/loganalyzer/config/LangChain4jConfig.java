@@ -1,5 +1,6 @@
 package com.loganalyzer.config;
 
+import com.loganalyzer.ai.ConversationalAgent;
 import com.loganalyzer.ai.LogAnalysisAI;
 import com.loganalyzer.ai.LogAnalysisAgent;
 import com.loganalyzer.tools.LogTools;
@@ -68,6 +69,29 @@ public class LangChain4jConfig {
                 .chatLanguageModel(chatLanguageModel)
                 .tools(logTools)
                 .chatMemory(MessageWindowChatMemory.withMaxMessages(50))
+                .build();
+    }
+
+    /**
+     * Phase 5 — Days 16-18: Conversational agent with per-session memory.
+     *
+     * chatMemoryProvider: A factory that creates a separate MessageWindowChatMemory
+     * for each unique sessionId (passed via @MemoryId). This isolates conversations
+     * so different users/sessions don't share context.
+     *
+     * Each session retains the last 20 messages (10 user + 10 assistant turns).
+     */
+    @Bean
+    public ConversationalAgent conversationalAgent(ChatLanguageModel chatLanguageModel,
+                                                   LogTools logTools) {
+        return AiServices.builder(ConversationalAgent.class)
+                .chatLanguageModel(chatLanguageModel)
+                .tools(logTools)
+                .chatMemoryProvider(sessionId ->
+                        MessageWindowChatMemory.builder()
+                                .id(sessionId)
+                                .maxMessages(20)
+                                .build())
                 .build();
     }
 }

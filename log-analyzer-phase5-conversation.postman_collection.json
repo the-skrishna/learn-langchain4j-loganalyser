@@ -1,0 +1,179 @@
+{
+  "info": {
+    "name": "Log Analyzer - Phase 5 (Memory & Conversations)",
+    "_postman_id": "log-analyzer-phase5-conversation",
+    "description": "Phase 5 Conversational AI testing collection.\n\nPREREQUISITE: Run Phase 3/4 ingestion first so the agent's tools have data.\n\nKey concept: Each sessionId gets isolated memory. Follow-up questions within the same session remember previous context.\n\nDebugging tips:\n- Set breakpoint in ConversationController.chat() to see sessionId routing\n- Watch console logs: each request shows the FULL conversation history being sent to OpenAI\n- Compare: same question with same sessionId (has context) vs new sessionId (no context)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "sessionA", "value": "debug-session-001" },
+    { "key": "sessionB", "value": "debug-session-002" }
+  ],
+  "item": [
+    {
+      "name": "Step 0 — Ingest test data",
+      "item": [
+        {
+          "name": "0a. Ingest — DB + auth errors",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/rag/ingest",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logText\": \"2024-01-15 10:22:58 INFO  app.Main - Starting application v2.3.1\\n2024-01-15 10:23:00 WARN  com.db.Pool - Retrying connection (attempt 1/3)\\n2024-01-15 10:23:01 ERROR com.db.Pool - Connection refused to postgres:5432\\njava.sql.SQLException: Connection refused\\n    at com.db.Pool.getConnection(Pool.java:42)\\n2024-01-15 10:23:01 ERROR com.auth.Service - Authentication failed for user admin\\njava.lang.NullPointerException: token was null\\n    at com.auth.Service.validate(Service.java:55)\\n2024-01-15 10:23:02 FATAL app.Main - Startup failed: could not acquire DB connection\\n2024-01-15 10:23:02 ERROR com.api.Gateway - Request timeout after 30000ms to payment-service\\njava.net.SocketTimeoutException: Read timed out\\n    at com.api.Gateway.forward(Gateway.java:88)\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 1 — Multi-turn conversation (same session)",
+      "description": "Run these IN ORDER with the SAME sessionId. Each follow-up builds on previous context.\n\nDEBUG: Watch the OpenAI request logs — each subsequent request includes ALL previous messages.",
+      "item": [
+        {
+          "name": "1a. Turn 1 — Initial question",
+          "description": "First message in the session. Memory is empty.\nWatch: OpenAI request has only system + this user message.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionA}}\",\n  \"message\": \"Show me all errors in the logs\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1b. Turn 2 — Follow-up filter",
+          "description": "Follow-up using 'those'. The agent should remember the errors from Turn 1.\nWatch: OpenAI request now has Turn 1's user+assistant messages + this new message.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionA}}\",\n  \"message\": \"Filter those by database errors only\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1c. Turn 3 — Pronoun resolution",
+          "description": "'them' refers to the database errors from Turn 2.\nThis tests pronoun resolution via conversation memory.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionA}}\",\n  \"message\": \"What caused them?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "1d. Turn 4 — Request action based on context",
+          "description": "The agent should suggest fixes for the database errors discussed in previous turns.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionA}}\",\n  \"message\": \"How do I fix this?\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 2 — Session isolation",
+      "description": "Use a DIFFERENT sessionId. This session has NO memory of Step 1's conversation.",
+      "item": [
+        {
+          "name": "2a. New session — same follow-up question",
+          "description": "Same question as 1c ('What caused them?') but in a NEW session.\nWithout context, the agent won't know what 'them' refers to.\nCompare this answer with 1c's answer.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionB}}\",\n  \"message\": \"What caused them?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2b. New session — independent conversation",
+          "description": "Start a fresh conversation about a different topic in session B.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionB}}\",\n  \"message\": \"Are there any authentication problems?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2c. Back to session A — context preserved",
+          "description": "Return to session A. It should still remember the DB error conversation.\nThis proves sessions are truly isolated and persistent.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionA}}\",\n  \"message\": \"Summarize our conversation so far\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Step 3 — Compare Phase 4 vs Phase 5",
+      "description": "Same question through Phase 4 (stateless agent) vs Phase 5 (conversational).",
+      "item": [
+        {
+          "name": "3a. Phase 4 — Stateless agent query",
+          "description": "Phase 4 agent has no per-session memory. Each request is independent.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/agent/query",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What errors occurred?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3b. Phase 5 — Conversational (turn 1)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"compare-session\",\n  \"message\": \"What errors occurred?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3c. Phase 5 — Follow-up (turn 2)",
+          "description": "This works in Phase 5 because of memory. Phase 4 can't do this.",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/logs/conversation/chat",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"compare-session\",\n  \"message\": \"Which of those is most critical?\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
